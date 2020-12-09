@@ -35,8 +35,8 @@ internal class RSocketState(
     keepAlive: KeepAlive,
 ) : Cancellable by connection {
     private val prioritizer = Prioritizer()
-    private val requestScope = CoroutineScope(SupervisorJob(job))
-    private val scope = CoroutineScope(job)
+    private val requestScope = CoroutineScope(SupervisorJob(job) + Dispatchers.Unconfined)
+    private val scope = CoroutineScope(job + Dispatchers.Unconfined)
 
     val receivers: IntMap<Channel<RequestFrame>> = IntMap()
     private val senders: IntMap<Job> = IntMap()
@@ -110,7 +110,7 @@ internal class RSocketState(
         }
     }
 
-    fun launch(block: suspend CoroutineScope.() -> Unit): Job = requestScope.launch(block = block)
+    fun launch(block: suspend CoroutineScope.() -> Unit): Job = requestScope.launch(start = CoroutineStart.UNDISPATCHED, block = block)
 
     fun launchCancelable(streamId: Int, block: suspend CoroutineScope.() -> Unit): Job {
         val job = launch(block)
@@ -191,13 +191,13 @@ internal class RSocketState(
             senders.clear()
             prioritizer.cancel(cancelError)
         }
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             while (connection.isActive) {
                 val frame = prioritizer.receive()
                 frame.closeOnError { connection.sendFrame(frame) }
             }
         }
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             while (connection.isActive) {
                 val frame = connection.receiveFrame()
                 frame.closeOnError { handleFrame(responder, frame) }
